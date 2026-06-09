@@ -3,7 +3,17 @@
 import { useState } from "react";
 
 export default function Home() {
+  const [plateNumber, setPlateNumber] = useState("");
   const [carFound, setCarFound] = useState(false);
+
+  function handleSearch() {
+    if (plateNumber.trim().length === 0) {
+      setCarFound(false);
+      return;
+    }
+
+    setCarFound(true);
+  }
 
   return (
     <main className="min-h-screen bg-black text-white flex items-center justify-center">
@@ -13,18 +23,18 @@ export default function Home() {
         </h1>
 
         <div className="bg-zinc-900 p-6 rounded-2xl shadow-xl">
-          <label className="block mb-3 text-lg">
-            הכנס מספר רכב
-          </label>
+          <label className="block mb-3 text-lg">הכנס מספר רכב</label>
 
           <input
             type="text"
             placeholder="123-45-678"
+            value={plateNumber}
+            onChange={(e) => setPlateNumber(e.target.value)}
             className="w-full p-4 rounded-xl bg-zinc-800 border border-zinc-700 text-white text-xl"
           />
 
           <button
-            onClick={() => setCarFound(true)}
+            onClick={handleSearch}
             className="w-full mt-4 bg-yellow-400 text-black font-bold py-4 rounded-xl text-xl hover:bg-yellow-300 transition"
           >
             חפש רכב
@@ -34,11 +44,11 @@ export default function Home() {
         {carFound && (
           <div className="mt-6 bg-zinc-900 p-6 rounded-2xl border border-zinc-800">
             <h2 className="text-2xl font-bold mb-2">
-              Tesla Model 3 2022
+              רכב מספר {plateNumber}
             </h2>
 
             <p className="text-zinc-300 mb-4">
-              מידה מקורית: 235/45R18
+              מידה מקורית לדוגמה: 235/45R18
             </p>
 
             <div className="space-y-3">
