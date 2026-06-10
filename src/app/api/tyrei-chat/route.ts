@@ -9,6 +9,7 @@ import {
   type RecommendationProfile,
   type TireRecommendationSet,
 } from "@/lib/recommendation-engine";
+import { analyzeFitment, type FitmentAnalysis } from "@/lib/fitment-engine";
 
 type ClientMessage = {
   role: "tyrei" | "user";
@@ -52,6 +53,10 @@ Core behavior:
 Safety and business rules:
 - Never guess legal tire fitment.
 - The legal tire size comes only from the vehicle object.
+- Explain fitment carefully and separate known information from assumptions.
+- Use fitmentAnalysis as the source of truth for fitment uncertainty, possible requirements, and recommended checks.
+- Encourage sidewall verification when fitment confidence is low or configuration is unknown.
+- Never invent OE specs, load index, speed rating, staggered setup, RunFlat status, XL requirement, or homologation.
 - Do not claim a tire is in stock unless inventory data explicitly says so. You currently have no live inventory data.
 - Do not mention WhatsApp.
 - Do not take payment yet.
@@ -124,6 +129,16 @@ function formatRecommendationContext(recommendations: TireRecommendationSet) {
     .join("\n\n");
 }
 
+function formatFitmentContext(fitmentAnalysis: FitmentAnalysis) {
+  return [
+    `Fitment confidence: ${fitmentAnalysis.fitmentConfidence}`,
+    `Possible requirements: ${fitmentAnalysis.possibleRequirements.join("; ") || "none"}`,
+    `Warnings: ${fitmentAnalysis.warnings.map((warning) => `${warning.severity}: ${warning.message}`).join("; ") || "none"}`,
+    `Recommended checks: ${fitmentAnalysis.recommendedChecks.join("; ") || "none"}`,
+    `Notes: ${fitmentAnalysis.notes.join("; ") || "none"}`,
+  ].join("\n");
+}
+
 function formatTireKnowledgeSummary() {
   const tireModels = tireKnowledgeBase
     .map((tire) =>
@@ -155,6 +170,7 @@ function toOpenAIInput(
   structuredProfile: ConversationProfile,
   recommendationProfile: RecommendationProfile,
   recommendations: TireRecommendationSet,
+  fitmentAnalysis: FitmentAnalysis,
 ) {
   const vehicleContext = [
     `Vehicle model: ${vehicle.model}`,
@@ -165,6 +181,7 @@ function toOpenAIInput(
   const recommendationContext = formatRecommendationContext(recommendations);
   const ready = profileIsReady(structuredProfile);
   const knowledgeSummary = formatTireKnowledgeSummary();
+  const fitmentContext = formatFitmentContext(fitmentAnalysis);
 
   return [
     {
@@ -173,6 +190,7 @@ function toOpenAIInput(
         `Context for this conversation:\n${vehicleContext}`,
         `structuredProfile extracted deterministically from the conversation:\n${JSON.stringify(structuredProfile, null, 2)}`,
         `Recommendation engine profile:\n${JSON.stringify(recommendationProfile, null, 2)}`,
+        `Fitment analysis:\n${fitmentContext}`,
         `Current tire knowledge base summary:\n${knowledgeSummary}`,
         `Structured recommendations from local engine:\n${recommendationContext}`,
         `Profile ready for final recommendations: ${ready ? "yes" : "no"}`,
@@ -208,6 +226,10 @@ export async function POST(request: Request) {
 
     const structuredProfile = extractConversationProfile(body.messages);
     const recommendationProfile = toRecommendationProfile(structuredProfile, body.vehicle);
+    const fitmentAnalysis = analyzeFitment({
+      vehicle: body.vehicle,
+      conversationProfile: structuredProfile,
+    });
     const recommendations = recommendTires(recommendationProfile);
     const client = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY,
@@ -222,6 +244,7 @@ export async function POST(request: Request) {
         structuredProfile,
         recommendationProfile,
         recommendations,
+        fitmentAnalysis,
       ),
     });
 
@@ -229,6 +252,7 @@ export async function POST(request: Request) {
       message: response.output_text || "לא הצלחתי לנסח תשובה כרגע. אפשר לנסות שוב?",
       structuredProfile,
       profile: recommendationProfile,
+      fitmentAnalysis,
       recommendations: profileIsReady(structuredProfile) ? recommendations : null,
     });
   } catch (error) {

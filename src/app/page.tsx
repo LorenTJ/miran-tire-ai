@@ -44,6 +44,18 @@ type TireRecommendationSet = {
   premium: TireRecommendation;
 };
 
+type FitmentAnalysis = {
+  fitmentConfidence: "low" | "medium" | "high";
+  possibleRequirements: string[];
+  warnings: Array<{
+    id: string;
+    severity: "info" | "caution";
+    message: string;
+  }>;
+  recommendedChecks: string[];
+  notes: string[];
+};
+
 const tierLabels: Record<keyof TireRecommendationSet, string> = {
   budget: "חסכוני",
   mid: "משתלם",
@@ -63,6 +75,7 @@ export default function Home() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [recommendations, setRecommendations] = useState<TireRecommendationSet | null>(null);
+  const [fitmentAnalysis, setFitmentAnalysis] = useState<FitmentAnalysis | null>(null);
   const [isLookingUp, setIsLookingUp] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
   const [error, setError] = useState("");
@@ -83,6 +96,7 @@ export default function Home() {
     setVehicle(null);
     setMessages([]);
     setRecommendations(null);
+    setFitmentAnalysis(null);
     setChatInput("");
 
     try {
@@ -148,6 +162,7 @@ export default function Home() {
         message?: string;
         error?: string;
         recommendations?: TireRecommendationSet | null;
+        fitmentAnalysis?: FitmentAnalysis;
       };
 
       setMessages((current) => [
@@ -161,6 +176,7 @@ export default function Home() {
         },
       ]);
       setRecommendations(response.ok ? data.recommendations ?? null : null);
+      setFitmentAnalysis(response.ok ? data.fitmentAnalysis ?? null : null);
     } catch {
       setMessages((current) => [
         ...current,
@@ -275,6 +291,23 @@ export default function Home() {
                   <div className="rounded-[1.5rem] rounded-tr-md border border-white/10 bg-[#101113] px-5 py-4 text-sm text-zinc-400">
                     Tyrei מקליד...
                   </div>
+                </div>
+              )}
+
+              {fitmentAnalysis && (
+                <div className="rounded-[1.5rem] border border-white/10 bg-white/[0.03] p-4 text-sm leading-6 text-zinc-400">
+                  <p className="text-[#d6c27d]">הערות התאמה</p>
+                  <p className="mt-2">רמת ודאות: {fitmentAnalysis.fitmentConfidence}</p>
+                  {fitmentAnalysis.warnings.slice(0, 2).map((warning) => (
+                    <p key={warning.id} className="mt-2">
+                      {warning.message}
+                    </p>
+                  ))}
+                  {fitmentAnalysis.recommendedChecks.length > 0 && (
+                    <p className="mt-2">
+                      בדיקה מומלצת: {fitmentAnalysis.recommendedChecks[0]}
+                    </p>
+                  )}
                 </div>
               )}
 
