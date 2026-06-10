@@ -22,6 +22,9 @@ export type TireRecommendation = {
   whyNotCheaper: string;
   whyNotMoreExpensive: string;
   confidence: "low" | "medium" | "high";
+  confidenceLevel: "low" | "medium" | "high";
+  assumptionsMade: string[];
+  missingInformationImpact?: string;
   bestFor: string[];
   notIdealFor: string[];
   explanation: string;
@@ -43,49 +46,49 @@ const fallbackPrices: Record<TireTier, string> = {
 function scoreTire(tire: TireModelKnowledge, profile: RecommendationProfile) {
   let score = 0;
 
-  score += tire.valueScore * 2;
-  score += tire.comfortScore;
-  score += tire.quietScore;
-  score += tire.wetGripScore;
-  score += tire.longevityScore;
+  score += tire.valueForMoneyLevel * 2;
+  score += tire.comfortLevel;
+  score += tire.quietnessLevel;
+  score += tire.wetGripLevel;
+  score += tire.longevityLevel;
 
-  if (profile.priority === "price") score += tire.valueScore * 3;
-  if (profile.priority === "comfort") score += tire.comfortScore * 3;
-  if (profile.priority === "quiet") score += tire.quietScore * 3;
-  if (profile.priority === "grip") score += tire.wetGripScore * 3;
-  if (profile.priority === "longevity") score += tire.longevityScore * 3;
+  if (profile.priority === "price") score += tire.valueForMoneyLevel * 3;
+  if (profile.priority === "comfort") score += tire.comfortLevel * 3;
+  if (profile.priority === "quiet") score += tire.quietnessLevel * 3;
+  if (profile.priority === "grip") score += tire.wetGripLevel * 3;
+  if (profile.priority === "longevity") score += tire.longevityLevel * 3;
   if (profile.priority === "balanced") {
-    score += tire.valueScore + tire.comfortScore + tire.quietScore + tire.wetGripScore;
+    score += tire.valueForMoneyLevel + tire.comfortLevel + tire.quietnessLevel + tire.wetGripLevel;
   }
 
   if (profile.drivingStyle === "sporty") {
-    score += tire.drivingStyle === "sporty" || tire.drivingStyle === "mixed" ? 6 : -4;
+    score += tire.sportinessLevel >= 7 ? 6 : -4;
     if (tire.tier === "budget") score -= 8;
   }
 
   if (profile.drivingStyle === "relaxed") {
-    score += tire.comfortScore + tire.quietScore;
+    score += tire.comfortLevel + tire.quietnessLevel;
   }
 
-  if (profile.monthlyMileage === "high") score += tire.longevityScore * 2;
+  if (profile.monthlyMileage === "high") score += tire.longevityLevel * 2;
   if (profile.monthlyMileage === "low" && profile.priority === "price") {
     score += tire.tier === "budget" ? 8 : tire.tier === "mid" ? 4 : 0;
   }
-  if (profile.replacementReason === "noise") score += tire.quietScore * 2;
+  if (profile.replacementReason === "noise") score += tire.quietnessLevel * 2;
   if (profile.evVehicle) {
-    score += tire.quietScore * 2;
-    score += tire.evSuitable ? 6 : -2;
+    score += tire.quietnessLevel * 2;
+    score += tire.evCompatible ? 6 : -2;
   }
-  if (profile.tireCount === 4 && profile.priority === "price") score += tire.valueScore * 2;
+  if (profile.tireCount === 4 && profile.priority === "price") score += tire.valueForMoneyLevel * 2;
 
   return score;
 }
 
 function isUnsuitable(tire: TireModelKnowledge, profile: RecommendationProfile) {
-  if (profile.drivingStyle === "sporty" && tire.tier === "budget" && tire.wetGripScore < 4) return true;
-  if (profile.evVehicle && tire.quietScore < 3) return true;
-  if (profile.priority === "comfort" && tire.comfortScore < 3) return true;
-  if (profile.priority === "quiet" && tire.quietScore < 3) return true;
+  if (profile.drivingStyle === "sporty" && tire.tier === "budget" && tire.wetGripLevel < 6) return true;
+  if (profile.evVehicle && tire.quietnessLevel < 5) return true;
+  if (profile.priority === "comfort" && tire.comfortLevel < 5) return true;
+  if (profile.priority === "quiet" && tire.quietnessLevel < 5) return true;
   return false;
 }
 
@@ -103,6 +106,52 @@ function inferConfidence(tire: TireModelKnowledge | null, profile: Recommendatio
   if (tire.confidence === "high" && knownProfileFields >= 4) return "high";
   if (knownProfileFields >= 3) return "medium";
   return "low";
+}
+
+function profileMissingFields(profile: RecommendationProfile) {
+  const missing: string[] = [];
+
+  if (profile.drivingStyle === "unknown") missing.push("סגנון הנהיגה");
+  if (profile.priority === "unknown") missing.push("מה הכי חשוב בצמיג");
+  if (profile.monthlyMileage === "unknown") missing.push("נסועה חודשית");
+  if (profile.replacementReason === "unknown") missing.push("סיבת ההחלפה");
+  if (profile.tireCount === "unknown") missing.push("כמה צמיגים צריך להחליף");
+
+  return missing;
+}
+
+function assumptionsMade(tire: TireModelKnowledge | null, profile: RecommendationProfile) {
+  const assumptions: string[] = [];
+
+  if (!tire) assumptions.push("אין עדיין דגם מאומת בקטגוריה הזו בבסיס הידע");
+  if (profile.drivingStyle === "unknown") assumptions.push("סגנון הנהיגה לא ידוע");
+  if (profile.priority === "unknown") assumptions.push("עדיפות הלקוח לא ברורה");
+  if (profile.monthlyMileage === "unknown") assumptions.push("הנסועה החודשית לא ידועה");
+  if (profile.replacementReason === "unknown") assumptions.push("סיבת ההחלפה לא ידועה");
+  if (profile.tireCount === "unknown") assumptions.push("כמות הצמיגים להחלפה לא ידועה");
+  if (profile.evVehicle && tire && !tire.evCompatible) assumptions.push("הרכב חשמלי, אך הצמיג אינו מסומן כ-EV ייעודי בבסיס הידע");
+  if (tire?.confidence === "low") assumptions.push("מידע הדגם בבסיס הידע עדיין ברמת ביטחון נמוכה");
+
+  return assumptions;
+}
+
+function missingInformationImpact(profile: RecommendationProfile) {
+  const missing = profileMissingFields(profile);
+
+  if (missing.length === 0) return undefined;
+
+  return `מידע נוסף על ${missing.join(", ")} יכול לשפר את דיוק ההמלצה.`;
+}
+
+function adjustConfidence(
+  baseConfidence: "low" | "medium" | "high",
+  assumptions: string[],
+  closeScoreWarning?: string,
+) {
+  if (baseConfidence === "low") return "low";
+  if (assumptions.length >= 3) return "low";
+  if (assumptions.length > 0 || closeScoreWarning) return "medium";
+  return baseConfidence;
 }
 
 function mainReasonFor(tire: TireModelKnowledge | null, tier: TireTier, profile: RecommendationProfile) {
@@ -147,7 +196,7 @@ function whyNotMoreExpensiveFor(tier: TireTier, profile: RecommendationProfile) 
 function bestFor(tire: TireModelKnowledge | null, tier: TireTier, profile: RecommendationProfile) {
   if (!tire) return ["השלמה עתידית של בסיס הידע"];
 
-  const values = [...tire.suitableFor];
+  const values = [...tire.bestFor];
   if (profile.evVehicle) values.push("רכב חשמלי שבו שקט ונוחות חשובים");
   if (profile.priority === "price") values.push("לקוח שרוצה לשלוט בתקציב");
   if (profile.priority === "grip") values.push("לקוח שמעדיף אחיזה וביטחון");
@@ -168,7 +217,13 @@ function notIdealFor(tire: TireModelKnowledge | null, tier: TireTier, profile: R
   return [...new Set(values)].slice(0, 4);
 }
 
-function buildRecommendation(tire: TireModelKnowledge | null, tier: TireTier, score: number, profile: RecommendationProfile): TireRecommendation {
+function buildRecommendation(
+  tire: TireModelKnowledge | null,
+  tier: TireTier,
+  score: number,
+  profile: RecommendationProfile,
+  closeScoreWarning?: string,
+): TireRecommendation {
   const tireModel = tire ? `${tire.brand} ${tire.model}` : "אין דגם מאומת כרגע";
   const mainReason = mainReasonFor(tire, tier, profile);
   const tradeoffs = tradeoffsFor(tire, tier);
@@ -176,6 +231,11 @@ function buildRecommendation(tire: TireModelKnowledge | null, tier: TireTier, sc
   const whyNotMoreExpensive = whyNotMoreExpensiveFor(tier, profile);
   const bestForValues = bestFor(tire, tier, profile);
   const notIdealForValues = notIdealFor(tire, tier, profile);
+  const assumptions = assumptionsMade(tire, profile);
+  const baseConfidence = inferConfidence(tire, profile);
+  const confidenceLevel = adjustConfidence(baseConfidence, assumptions, closeScoreWarning);
+  const informationImpact = missingInformationImpact(profile);
+  const tradeoffsWithUncertainty = closeScoreWarning ? `${tradeoffs} ${closeScoreWarning}` : tradeoffs;
 
   return {
     category: tier,
@@ -185,14 +245,17 @@ function buildRecommendation(tire: TireModelKnowledge | null, tier: TireTier, sc
     price: fallbackPrices[tier],
     score,
     mainReason,
-    tradeoffs,
+    tradeoffs: tradeoffsWithUncertainty,
     whyNotCheaper,
     whyNotMoreExpensive,
-    confidence: inferConfidence(tire, profile),
+    confidence: confidenceLevel,
+    confidenceLevel,
+    assumptionsMade: assumptions,
+    missingInformationImpact: informationImpact,
     bestFor: bestForValues,
     notIdealFor: notIdealForValues,
     explanation: mainReason,
-    matchReason: [mainReason, tradeoffs].join(" "),
+    matchReason: [mainReason, tradeoffsWithUncertainty].join(" "),
   };
 }
 
@@ -204,7 +267,13 @@ function pickBestForTier(tier: TireTier, profile: RecommendationProfile): TireRe
     .sort((left, right) => right.score - left.score);
 
   const best = candidates[0] ?? null;
-  return buildRecommendation(best?.tire ?? null, tier, best?.score ?? 0, profile);
+  const secondBest = candidates[1] ?? null;
+  const closeScoreWarning =
+    best && secondBest && Math.abs(best.score - secondBest.score) <= 3
+      ? "הפער מול אפשרות אחרת באותה קטגוריה קטן, לכן זו לא בחירה חד-משמעית."
+      : undefined;
+
+  return buildRecommendation(best?.tire ?? null, tier, best?.score ?? 0, profile, closeScoreWarning);
 }
 
 export function recommendTires(profile: RecommendationProfile): TireRecommendationSet {

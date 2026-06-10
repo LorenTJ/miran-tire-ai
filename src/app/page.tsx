@@ -29,6 +29,9 @@ type TireRecommendation = {
   whyNotCheaper: string;
   whyNotMoreExpensive: string;
   confidence: "low" | "medium" | "high";
+  confidenceLevel: "low" | "medium" | "high";
+  assumptionsMade: string[];
+  missingInformationImpact?: string;
   bestFor: string[];
   notIdealFor: string[];
   explanation: string;
@@ -317,7 +320,12 @@ export default function Home() {
                             <p className="mt-1 text-zinc-300">{recommendation.notIdealFor.join(", ")}</p>
                           </div>
                         </div>
-                        <p className="mt-3 text-xs text-zinc-600">רמת ביטחון: {recommendation.confidence}</p>
+                        <p className="mt-3 text-xs text-zinc-600">רמת ביטחון: {recommendation.confidenceLevel}</p>
+                        {recommendation.missingInformationImpact && (
+                          <p className="mt-2 text-xs leading-5 text-zinc-600">
+                            {recommendation.missingInformationImpact}
+                          </p>
+                        )}
                         <button
                           type="button"
                           className="mt-5 rounded-2xl border border-white/10 bg-white/[0.04] px-5 py-3 text-sm font-semibold text-white transition hover:border-[#d6c27d]/40 hover:bg-[#d6c27d]/10"

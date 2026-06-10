@@ -42,6 +42,11 @@ Core behavior:
 - Explain when premium is justified.
 - Mention EV/Tesla factors when relevant: quietness, weight, wear, comfort, and EV suitability.
 - Do not exaggerate and do not claim facts not present in the knowledge base or recommendation context.
+- Avoid sounding overconfident.
+- Explain uncertainty naturally when confidenceLevel is medium or low.
+- If multiple options are valid or scores are close, say the difference is small.
+- Avoid "best tire" language unless confidenceLevel is high.
+- Explain tradeoffs honestly.
 - If the user provided enough information, move to Budget / Mid / Premium recommendations.
 
 Safety and business rules:
@@ -108,10 +113,12 @@ function formatRecommendationContext(recommendations: TireRecommendationSet) {
         `Tradeoffs: ${recommendation.tradeoffs}`,
         `Why not cheaper: ${recommendation.whyNotCheaper}`,
         `Why not more expensive: ${recommendation.whyNotMoreExpensive}`,
-        `Confidence: ${recommendation.confidence}`,
+        `Confidence level: ${recommendation.confidenceLevel}`,
+        `Assumptions made: ${recommendation.assumptionsMade.join(", ") || "none"}`,
+        `Missing information impact: ${recommendation.missingInformationImpact ?? "none"}`,
         `Best for: ${recommendation.bestFor.join(", ")}`,
         `Not ideal for: ${recommendation.notIdealFor.join(", ")}`,
-        `Tyrei notes: ${tire.notesForTyrei}`,
+        `Tyrei notes: ${(tire.notes ?? []).join("; ") || "No extra notes."}`,
       ].join("\n");
     })
     .join("\n\n");
@@ -122,9 +129,11 @@ function formatTireKnowledgeSummary() {
     .map((tire) =>
       [
         `${tire.tier}: ${tire.brand} ${tire.model}`,
-        `scores comfort=${tire.comfortScore}, quiet=${tire.quietScore}, wetGrip=${tire.wetGripScore}, longevity=${tire.longevityScore}, value=${tire.valueScore}`,
-        `style=${tire.drivingStyle}, evSuitable=${tire.evSuitable ? "yes" : "no"}, confidence=${tire.confidence}`,
-        `notes=${tire.notesForTyrei}`,
+        `scores comfort=${tire.comfortLevel}, quiet=${tire.quietnessLevel}, sport=${tire.sportinessLevel}, wetGrip=${tire.wetGripLevel}, longevity=${tire.longevityLevel}, value=${tire.valueForMoneyLevel}`,
+        `category=${tire.category}, evCompatible=${tire.evCompatible ? "yes" : "no"}, confidence=${tire.confidence}`,
+        `bestFor=${tire.bestFor.join(", ")}`,
+        `notIdealFor=${tire.notIdealFor.join(", ")}`,
+        `notes=${(tire.notes ?? []).join("; ") || "No extra notes."}`,
       ].join(" | "),
     )
     .join("\n");
