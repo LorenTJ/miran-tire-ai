@@ -10,6 +10,10 @@ import {
   type TireRecommendationSet,
 } from "@/lib/recommendation-engine";
 import { analyzeFitment, type FitmentAnalysis } from "@/lib/fitment-engine";
+import {
+  updateConversationMemory,
+  type ConversationMemory,
+} from "@/lib/conversation-memory";
 
 type ClientMessage = {
   role: "tyrei" | "user";
@@ -31,12 +35,19 @@ Sound like a calm tire expert, not a generic chatbot and not a rigid questionnai
 
 Core behavior:
 - Use structuredProfile as the source of truth for what is already known.
+- Use conversationMemory as the source of truth for continuity and recommendation stability.
 - Infer useful information from free text, but do not override structuredProfile.
 - Do not ask again for fields that are already known in structuredProfile.
+- Do not repeat questions that are already resolved in conversationMemory.lockedPriorities.
+- Remember concerns listed in conversationMemory.discussedConcerns and refer back to them when useful.
 - Ask only about fields listed in structuredProfile.missingFields, one question at a time.
 - If the user asks a general tire question, answer it directly and briefly, then continue the fitting flow.
 - Keep answers short, practical, and easy to understand.
 - Recommendations must explain why they match the customer profile.
+- Keep recommendation direction consistent with conversationMemory.currentDirection.
+- If new user information changes the recommendation direction, explain briefly what changed and why.
+- If customer priorities conflict, explain the tradeoff clearly instead of switching direction abruptly.
+- Evolve recommendations gradually and avoid contradicting previous guidance.
 - Explain recommendations like a tire expert: compare options clearly, mention tradeoffs, and keep it practical.
 - Explain why a cheaper tire may be enough when the profile is price-sensitive or low-mileage.
 - Explain when premium is not worth it.
@@ -139,6 +150,21 @@ function formatFitmentContext(fitmentAnalysis: FitmentAnalysis) {
   ].join("\n");
 }
 
+function formatMemoryContext(memory: ConversationMemory) {
+  return [
+    `Current recommendation direction: ${memory.currentDirection}`,
+    `Confidence trend: ${memory.confidenceTrend}`,
+    `Locked priorities: ${memory.lockedPriorities.join(", ") || "none"}`,
+    `Discussed concerns: ${memory.discussedConcerns.join(", ") || "none"}`,
+    `Unresolved questions: ${memory.unresolvedQuestions.join(", ") || "none"}`,
+    `Recommendation history: ${
+      memory.recommendationHistory
+        .map((item) => `${item.direction} (${item.confidenceLevel}) - ${item.reason}`)
+        .join(" | ") || "none"
+    }`,
+  ].join("\n");
+}
+
 function formatTireKnowledgeSummary() {
   const tireModels = tireKnowledgeBase
     .map((tire) =>
@@ -171,6 +197,7 @@ function toOpenAIInput(
   recommendationProfile: RecommendationProfile,
   recommendations: TireRecommendationSet,
   fitmentAnalysis: FitmentAnalysis,
+  conversationMemory: ConversationMemory,
 ) {
   const vehicleContext = [
     `Vehicle model: ${vehicle.model}`,
@@ -182,6 +209,7 @@ function toOpenAIInput(
   const ready = profileIsReady(structuredProfile);
   const knowledgeSummary = formatTireKnowledgeSummary();
   const fitmentContext = formatFitmentContext(fitmentAnalysis);
+  const memoryContext = formatMemoryContext(conversationMemory);
 
   return [
     {
@@ -190,6 +218,7 @@ function toOpenAIInput(
         `Context for this conversation:\n${vehicleContext}`,
         `structuredProfile extracted deterministically from the conversation:\n${JSON.stringify(structuredProfile, null, 2)}`,
         `Recommendation engine profile:\n${JSON.stringify(recommendationProfile, null, 2)}`,
+        `Conversation memory summary:\n${memoryContext}`,
         `Fitment analysis:\n${fitmentContext}`,
         `Current tire knowledge base summary:\n${knowledgeSummary}`,
         `Structured recommendations from local engine:\n${recommendationContext}`,
@@ -231,6 +260,11 @@ export async function POST(request: Request) {
       conversationProfile: structuredProfile,
     });
     const recommendations = recommendTires(recommendationProfile);
+    const conversationMemory = updateConversationMemory({
+      messages: body.messages,
+      structuredProfile,
+      recommendations,
+    });
     const client = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY,
     });
@@ -245,6 +279,7 @@ export async function POST(request: Request) {
         recommendationProfile,
         recommendations,
         fitmentAnalysis,
+        conversationMemory,
       ),
     });
 
@@ -252,6 +287,7 @@ export async function POST(request: Request) {
       message: response.output_text || "לא הצלחתי לנסח תשובה כרגע. אפשר לנסות שוב?",
       structuredProfile,
       profile: recommendationProfile,
+      conversationMemory,
       fitmentAnalysis,
       recommendations: profileIsReady(structuredProfile) ? recommendations : null,
     });
