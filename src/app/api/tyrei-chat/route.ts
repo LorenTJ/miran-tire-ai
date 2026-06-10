@@ -36,6 +36,12 @@ Core behavior:
 - If the user asks a general tire question, answer it directly and briefly, then continue the fitting flow.
 - Keep answers short, practical, and easy to understand.
 - Recommendations must explain why they match the customer profile.
+- Explain recommendations like a tire expert: compare options clearly, mention tradeoffs, and keep it practical.
+- Explain why a cheaper tire may be enough when the profile is price-sensitive or low-mileage.
+- Explain when premium is not worth it.
+- Explain when premium is justified.
+- Mention EV/Tesla factors when relevant: quietness, weight, wear, comfort, and EV suitability.
+- Do not exaggerate and do not claim facts not present in the knowledge base or recommendation context.
 - If the user provided enough information, move to Budget / Mid / Premium recommendations.
 
 Safety and business rules:
@@ -94,10 +100,17 @@ function formatRecommendationContext(recommendations: TireRecommendationSet) {
       }
 
       return [
-        `${tier}: ${tire.brand} ${tire.model}`,
+        `${tier}: ${recommendation.tireModel}`,
+        `Category: ${recommendation.category}`,
+        `Price: ${recommendation.price}`,
         `Score: ${recommendation.score}`,
-        `Explanation: ${recommendation.explanation}`,
-        `Why it matches: ${recommendation.matchReason}`,
+        `Main reason: ${recommendation.mainReason}`,
+        `Tradeoffs: ${recommendation.tradeoffs}`,
+        `Why not cheaper: ${recommendation.whyNotCheaper}`,
+        `Why not more expensive: ${recommendation.whyNotMoreExpensive}`,
+        `Confidence: ${recommendation.confidence}`,
+        `Best for: ${recommendation.bestFor.join(", ")}`,
+        `Not ideal for: ${recommendation.notIdealFor.join(", ")}`,
         `Tyrei notes: ${tire.notesForTyrei}`,
       ].join("\n");
     })

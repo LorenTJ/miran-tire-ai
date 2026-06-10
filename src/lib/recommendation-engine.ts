@@ -11,9 +11,19 @@ export type RecommendationProfile = {
 };
 
 export type TireRecommendation = {
+  category: TireTier;
   tier: TireTier;
   tire: TireModelKnowledge | null;
+  tireModel: string;
+  price: string;
   score: number;
+  mainReason: string;
+  tradeoffs: string;
+  whyNotCheaper: string;
+  whyNotMoreExpensive: string;
+  confidence: "low" | "medium" | "high";
+  bestFor: string[];
+  notIdealFor: string[];
   explanation: string;
   matchReason: string;
 };
@@ -22,6 +32,12 @@ export type TireRecommendationSet = {
   budget: TireRecommendation;
   mid: TireRecommendation;
   premium: TireRecommendation;
+};
+
+const fallbackPrices: Record<TireTier, string> = {
+  budget: "מחיר יימסר לאחר בדיקת זמינות",
+  mid: "₪590-₪690",
+  premium: "₪990+",
 };
 
 function scoreTire(tire: TireModelKnowledge, profile: RecommendationProfile) {
@@ -51,26 +67,16 @@ function scoreTire(tire: TireModelKnowledge, profile: RecommendationProfile) {
     score += tire.comfortScore + tire.quietScore;
   }
 
-  if (profile.monthlyMileage === "high") {
-    score += tire.longevityScore * 2;
-  }
-
+  if (profile.monthlyMileage === "high") score += tire.longevityScore * 2;
   if (profile.monthlyMileage === "low" && profile.priority === "price") {
     score += tire.tier === "budget" ? 8 : tire.tier === "mid" ? 4 : 0;
   }
-
-  if (profile.replacementReason === "noise") {
-    score += tire.quietScore * 2;
-  }
-
+  if (profile.replacementReason === "noise") score += tire.quietScore * 2;
   if (profile.evVehicle) {
     score += tire.quietScore * 2;
     score += tire.evSuitable ? 6 : -2;
   }
-
-  if (profile.tireCount === 4 && profile.priority === "price") {
-    score += tire.valueScore * 2;
-  }
+  if (profile.tireCount === 4 && profile.priority === "price") score += tire.valueScore * 2;
 
   return score;
 }
@@ -83,38 +89,110 @@ function isUnsuitable(tire: TireModelKnowledge, profile: RecommendationProfile) 
   return false;
 }
 
-function buildExplanation(tire: TireModelKnowledge | null, tier: TireTier, profile: RecommendationProfile) {
-  if (!tire) {
-    return {
-      explanation:
-        "אין עדיין דגם מתאים בקטגוריה הזו בבסיס הידע של Tyrei. עדיף לא להמציא דגם לפני שמוסיפים מידע מסודר.",
-      matchReason:
-        "Tyrei משתמש כרגע רק בדגמים שנמצאים בבסיס הידע המקומי, ולכן הקטגוריה הזו תושלם בהמשך.",
-    };
+function inferConfidence(tire: TireModelKnowledge | null, profile: RecommendationProfile): "low" | "medium" | "high" {
+  if (!tire) return "low";
+
+  const knownProfileFields = [
+    profile.drivingStyle,
+    profile.priority,
+    profile.monthlyMileage,
+    profile.replacementReason,
+    profile.tireCount,
+  ].filter((value) => value !== "unknown").length;
+
+  if (tire.confidence === "high" && knownProfileFields >= 4) return "high";
+  if (knownProfileFields >= 3) return "medium";
+  return "low";
+}
+
+function mainReasonFor(tire: TireModelKnowledge | null, tier: TireTier, profile: RecommendationProfile) {
+  if (!tire) return "אין עדיין דגם מאומת בקטגוריה הזו בבסיס הידע המקומי.";
+  if (profile.priority === "price" && tier !== "premium") return "זו בחירה שמתעדפת תמורה ועלות סבירה.";
+  if (profile.priority === "quiet" || profile.evVehicle) return "זו בחירה שמתחשבת בשקט ונוחות, במיוחד ברכב חשמלי.";
+  if (profile.priority === "grip" || profile.drivingStyle === "sporty") return "זו בחירה שמתאימה יותר למי שמחפש אחיזה ותחושת כביש.";
+  if (profile.replacementReason === "test") return "זו בחירה שמאזנת בין התאמה חוקית, ערך ושימוש יומיומי.";
+  if (profile.monthlyMileage === "high") return "זו בחירה שנותנת משקל לעמידות לאורך זמן.";
+  return tier === "premium"
+    ? "זו בחירת פרימיום שמעדיפה איכות ושקט על פני מחיר נמוך."
+    : "זו בחירה מאוזנת לשימוש יומיומי.";
+}
+
+function tradeoffsFor(tire: TireModelKnowledge | null, tier: TireTier) {
+  if (!tire) return "החיסרון המרכזי הוא שאין עדיין דגם ספציפי מאומת להצגה.";
+  if (tier === "budget") return "החיסכון במחיר עלול לבוא על חשבון שקט, תחושת כביש או אורך חיים.";
+  if (tier === "mid") return "זו לא הבחירה הכי זולה ולא הכי יוקרתית, אלא נקודת איזון.";
+  return "החיסרון המרכזי הוא מחיר גבוה יותר, שלא תמיד מוצדק לנסועה נמוכה או נהיגה רגועה.";
+}
+
+function whyNotCheaperFor(tire: TireModelKnowledge | null, tier: TireTier, profile: RecommendationProfile) {
+  if (!tire) return "אי אפשר להשוות לדגם זול יותר בלי דגם מאומת בבסיס הידע.";
+  if (tier === "budget") return "זו כבר האפשרות החסכונית ביותר מתוך ההמלצות המובנות כרגע.";
+  if (profile.evVehicle) return "ברכב חשמלי צמיג זול מדי עלול להיות פחות מתאים לשקט, משקל ושחיקה.";
+  if (profile.drivingStyle === "sporty") return "בנהיגה ספורטיבית לא כדאי לרדת לצמיג חלש מדי באחיזה.";
+  if (profile.priority === "quiet" || profile.priority === "comfort") return "צמיג זול יותר עלול להיות פחות שקט או פחות נוח.";
+  return "אפשר לרדת במחיר אם התקציב חשוב יותר מהנוחות והתחושה.";
+}
+
+function whyNotMoreExpensiveFor(tier: TireTier, profile: RecommendationProfile) {
+  if (tier === "premium") return "זו כבר האפשרות היקרה יותר; מעבר לזה לא מוצדק בלי צורך מאוד ספציפי.";
+  if (profile.monthlyMileage === "low" && profile.priority === "price") {
+    return "בנסועה נמוכה ורגישות למחיר, פרימיום לא תמיד מחזיר את ההפרש.";
   }
+  if (profile.drivingStyle === "relaxed" && profile.priority !== "quiet") {
+    return "בנהיגה רגועה, לא תמיד צריך לשלם יותר על ביצועים שלא ינוצלו.";
+  }
+  return "יקר יותר יכול לתת יותר שקט/תחושה, אבל לא תמיד נחוץ לפי הפרופיל.";
+}
 
-  const reasons: string[] = [];
+function bestFor(tire: TireModelKnowledge | null, tier: TireTier, profile: RecommendationProfile) {
+  if (!tire) return ["השלמה עתידית של בסיס הידע"];
 
-  if (profile.priority === "price") reasons.push("המחיר חשוב ללקוח, לכן ניתן משקל גבוה לתמורה");
-  if (profile.priority === "comfort") reasons.push("הלקוח מחפש נוחות, לכן נבדק ציון הנוחות");
-  if (profile.priority === "quiet") reasons.push("שקט חשוב כאן, לכן נבדק ציון הרעש/שקט");
-  if (profile.priority === "grip") reasons.push("אחיזה חשובה, לכן נבדק ציון האחיזה ברטוב");
-  if (profile.priority === "longevity") reasons.push("אורך חיים חשוב, לכן נבדקה עמידות יחסית");
-  if (profile.drivingStyle === "sporty") reasons.push("הנהיגה ספורטיבית יותר, ולכן נמנעים מהמלצה חלשה מדי");
-  if (profile.monthlyMileage === "high") reasons.push("הנסועה גבוהה, לכן יש חשיבות לעמידות");
-  if (profile.evVehicle) reasons.push("הרכב חשמלי, לכן שקט ונוחות קיבלו משקל גבוה יותר");
-  if (profile.tireCount === 4) reasons.push("בהחלפת רביעייה יש משמעות גבוהה יותר לתמורה הכוללת");
+  const values = [...tire.suitableFor];
+  if (profile.evVehicle) values.push("רכב חשמלי שבו שקט ונוחות חשובים");
+  if (profile.priority === "price") values.push("לקוח שרוצה לשלוט בתקציב");
+  if (profile.priority === "grip") values.push("לקוח שמעדיף אחיזה וביטחון");
+  if (tier === "mid") values.push("מי שרוצה איזון בין מחיר לאיכות");
+  if (tier === "premium") values.push("מי שמוכן לשלם יותר עבור תחושה ושקט");
 
-  const explanation =
-    tier === "budget"
-      ? "אפשרות חסכונית יחסית מתוך בסיס הידע הקיים."
-      : tier === "mid"
-        ? "אפשרות ביניים שמנסה לאזן בין מחיר, נוחות וביצועים."
-        : "אפשרות פרימיום למי שמעדיף איכות, שקט וביטחון על פני מחיר נמוך.";
+  return [...new Set(values)].slice(0, 4);
+}
+
+function notIdealFor(tire: TireModelKnowledge | null, tier: TireTier, profile: RecommendationProfile) {
+  if (!tire) return ["המלצה סופית לפני הוספת דגם מאומת"];
+
+  const values = [...tire.notIdealFor];
+  if (tier === "budget" && profile.drivingStyle === "sporty") values.push("נהיגה ספורטיבית");
+  if (tier === "premium" && profile.priority === "price") values.push("רגישות גבוהה למחיר");
+  if (tier === "premium" && profile.monthlyMileage === "low") values.push("נסועה נמוכה מאוד");
+
+  return [...new Set(values)].slice(0, 4);
+}
+
+function buildRecommendation(tire: TireModelKnowledge | null, tier: TireTier, score: number, profile: RecommendationProfile): TireRecommendation {
+  const tireModel = tire ? `${tire.brand} ${tire.model}` : "אין דגם מאומת כרגע";
+  const mainReason = mainReasonFor(tire, tier, profile);
+  const tradeoffs = tradeoffsFor(tire, tier);
+  const whyNotCheaper = whyNotCheaperFor(tire, tier, profile);
+  const whyNotMoreExpensive = whyNotMoreExpensiveFor(tier, profile);
+  const bestForValues = bestFor(tire, tier, profile);
+  const notIdealForValues = notIdealFor(tire, tier, profile);
 
   return {
-    explanation,
-    matchReason: reasons.length > 0 ? reasons.join(". ") + "." : "נבחר לפי התאמה כללית לפרופיל הלקוח.",
+    category: tier,
+    tier,
+    tire,
+    tireModel,
+    price: fallbackPrices[tier],
+    score,
+    mainReason,
+    tradeoffs,
+    whyNotCheaper,
+    whyNotMoreExpensive,
+    confidence: inferConfidence(tire, profile),
+    bestFor: bestForValues,
+    notIdealFor: notIdealForValues,
+    explanation: mainReason,
+    matchReason: [mainReason, tradeoffs].join(" "),
   };
 }
 
@@ -126,17 +204,7 @@ function pickBestForTier(tier: TireTier, profile: RecommendationProfile): TireRe
     .sort((left, right) => right.score - left.score);
 
   const best = candidates[0] ?? null;
-  const tire = best?.tire ?? null;
-  const score = best?.score ?? 0;
-  const { explanation, matchReason } = buildExplanation(tire, tier, profile);
-
-  return {
-    tier,
-    tire,
-    score,
-    explanation,
-    matchReason,
-  };
+  return buildRecommendation(best?.tire ?? null, tier, best?.score ?? 0, profile);
 }
 
 export function recommendTires(profile: RecommendationProfile): TireRecommendationSet {

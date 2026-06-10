@@ -16,11 +16,21 @@ type ChatMessage = {
 };
 
 type TireRecommendation = {
+  category: "budget" | "mid" | "premium";
   tier: "budget" | "mid" | "premium";
   tire: {
     brand: string;
     model: string;
   } | null;
+  tireModel: string;
+  price: string;
+  mainReason: string;
+  tradeoffs: string;
+  whyNotCheaper: string;
+  whyNotMoreExpensive: string;
+  confidence: "low" | "medium" | "high";
+  bestFor: string[];
+  notIdealFor: string[];
   explanation: string;
   matchReason: string;
 };
@@ -280,12 +290,34 @@ export default function Home() {
                           <div>
                             <p className="text-sm text-[#d6c27d]">{tierLabels[tier]}</p>
                             <h3 className="mt-1 text-xl font-semibold text-white">
-                              {tire ? `${tire.brand} ${tire.model}` : "עדיין אין דגם מתאים"}
+                              {tire ? `${tire.brand} ${tire.model}` : recommendation.tireModel}
                             </h3>
                           </div>
+                          <strong className="text-sm text-zinc-300">{recommendation.price}</strong>
                         </div>
-                        <p className="mt-4 leading-7 text-zinc-400">{recommendation.explanation}</p>
-                        <p className="mt-2 leading-7 text-zinc-500">{recommendation.matchReason}</p>
+                        <p className="mt-4 leading-7 text-zinc-300">{recommendation.mainReason}</p>
+                        <p className="mt-2 leading-7 text-zinc-500">{recommendation.tradeoffs}</p>
+                        <div className="mt-4 space-y-2 rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-sm leading-6 text-zinc-400">
+                          <p>
+                            <span className="text-zinc-300">למה לא זול יותר: </span>
+                            {recommendation.whyNotCheaper}
+                          </p>
+                          <p>
+                            <span className="text-zinc-300">למה לא יקר יותר: </span>
+                            {recommendation.whyNotMoreExpensive}
+                          </p>
+                        </div>
+                        <div className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+                          <div>
+                            <p className="text-zinc-500">מתאים במיוחד</p>
+                            <p className="mt-1 text-zinc-300">{recommendation.bestFor.join(", ")}</p>
+                          </div>
+                          <div>
+                            <p className="text-zinc-500">פחות מתאים</p>
+                            <p className="mt-1 text-zinc-300">{recommendation.notIdealFor.join(", ")}</p>
+                          </div>
+                        </div>
+                        <p className="mt-3 text-xs text-zinc-600">רמת ביטחון: {recommendation.confidence}</p>
                         <button
                           type="button"
                           className="mt-5 rounded-2xl border border-white/10 bg-white/[0.04] px-5 py-3 text-sm font-semibold text-white transition hover:border-[#d6c27d]/40 hover:bg-[#d6c27d]/10"
