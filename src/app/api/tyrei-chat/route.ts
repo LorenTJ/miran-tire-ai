@@ -1,6 +1,10 @@
 import OpenAI from "openai";
 import { tireKnowledgeBase, tireBrandTiers } from "@/data/tire-knowledge";
 import {
+  extractConversationProfile,
+  type ConversationProfile,
+} from "@/lib/conversation-state";
+import {
   recommendTires,
   type RecommendationProfile,
   type TireRecommendationSet,
@@ -25,8 +29,10 @@ Always answer in Hebrew.
 Sound like a calm tire expert, not a generic chatbot and not a rigid questionnaire.
 
 Core behavior:
-- Infer useful information from free text. Do not ask again for details the user already gave.
-- Ask only the next missing important question, one question at a time.
+- Use structuredProfile as the source of truth for what is already known.
+- Infer useful information from free text, but do not override structuredProfile.
+- Do not ask again for fields that are already known in structuredProfile.
+- Ask only about fields listed in structuredProfile.missingFields, one question at a time.
 - If the user asks a general tire question, answer it directly and briefly, then continue the fitting flow.
 - Keep answers short, practical, and easy to understand.
 - Recommendations must explain why they match the customer profile.
@@ -51,111 +57,30 @@ Advisor logic:
 - If the user is unsure whether to replace 2 or 4 tires, explain when 2 vs 4 makes sense and ask what condition the other tires are in.
 `.trim();
 
-function normalizeText(value: string) {
-  return value.toLowerCase().replace(/[״"׳'.,!?]/g, " ").replace(/\s+/g, " ").trim();
-}
-
-function lastUserText(messages: ClientMessage[]) {
-  return messages
-    .filter((message) => message.role === "user")
-    .map((message) => message.content)
-    .join(" ");
-}
-
-function formatKnownProfile(profile: RecommendationProfile) {
-  const missing = [
-    profile.tireCount === "unknown" ? "כמה צמיגים צריך להחליף" : null,
-    profile.replacementReason === "unknown" ? "סיבת ההחלפה" : null,
-    profile.monthlyMileage === "unknown" ? "נסועה חודשית" : null,
-    profile.priority === "unknown" ? "מה הכי חשוב בצמיג" : null,
-    profile.drivingStyle === "unknown" ? "סגנון נהיגה" : null,
-  ].filter(Boolean);
-
-  return [
-    `Driving style: ${profile.drivingStyle}`,
-    `Priority: ${profile.priority}`,
-    `Monthly mileage: ${profile.monthlyMileage}`,
-    `Replacement reason: ${profile.replacementReason}`,
-    `Vehicle type: ${profile.vehicleType}`,
-    `EV vehicle: ${profile.evVehicle ? "yes" : "no"}`,
-    `Tire count: ${profile.tireCount}`,
-    `Missing important details: ${missing.length > 0 ? missing.join(", ") : "none"}`,
-  ].join("\n");
-}
-
-function inferProfile(messages: ClientMessage[], vehicle: Vehicle): RecommendationProfile {
-  const text = normalizeText(lastUserText(messages));
-  const numbers = text.match(/\d+/g)?.map(Number) ?? [];
-  const largestNumber = numbers.length ? Math.max(...numbers) : null;
-  const evVehicle = /tesla|טסלה|electric|חשמלי/.test(normalizeText(`${vehicle.model} ${text}`));
-
+function toRecommendationProfile(
+  structuredProfile: ConversationProfile,
+  vehicle: Vehicle,
+): RecommendationProfile {
+  const model = vehicle.model.toLowerCase();
+  const evVehicle = model.includes("tesla") || model.includes("טסלה") || model.includes("electric");
   return {
-    drivingStyle: text.includes("ספורט") || text.includes("לוחץ") || text.includes("מהיר")
-      ? "sporty"
-      : text.includes("רגוע") || text.includes("לאט")
-        ? "relaxed"
-        : text.includes("רגיל") || text.includes("נורמלי")
-          ? "normal"
-          : "unknown",
-    priority: text.includes("מחיר") || text.includes("זול") || text.includes("תקציב")
-      ? "price"
-      : text.includes("שקט") || text.includes("רעש")
-        ? "quiet"
-        : text.includes("נוחות") || text.includes("נוח")
-          ? "comfort"
-          : text.includes("אחיזה") || text.includes("בטיחות")
-            ? "grip"
-            : text.includes("אורך") || text.includes("עמיד")
-              ? "longevity"
-              : text.includes("איזון") || text.includes("מאוזן")
-                ? "balanced"
-                : "unknown",
-    monthlyMileage: largestNumber === null
-      ? text.includes("מעט")
-        ? "low"
-        : text.includes("הרבה")
-          ? "high"
-          : "unknown"
-      : largestNumber <= 500
-        ? "low"
-        : largestNumber > 1500
-          ? "high"
-          : "medium",
-    replacementReason: text.includes("שחיק") || text.includes("ישן") || text.includes("גמור")
-      ? "wear"
-      : text.includes("פנצ") || text.includes("תקר")
-        ? "puncture"
-        : text.includes("רעש")
-          ? "noise"
-          : text.includes("טסט")
-            ? "test"
-            : text.length > 0
-              ? "other"
-              : "unknown",
-    vehicleType: text.includes("suv") || text.includes("גיפ") || text.includes("ג׳יפ")
-      ? "suv"
-      : text.includes("מסחרי")
-        ? "commercial"
-        : "private",
+    drivingStyle: structuredProfile.drivingStyle ?? "unknown",
+    priority: structuredProfile.priority === "balance" ? "balanced" : (structuredProfile.priority ?? "unknown"),
+    monthlyMileage: structuredProfile.monthlyMileage ?? "unknown",
+    replacementReason: structuredProfile.replacementReason ?? "unknown",
+    vehicleType: "private",
     evVehicle,
-    tireCount: text.includes("4") || text.includes("ארבע") || text.includes("כולם") || text.includes("רביע")
-      ? 4
-      : text.includes("2") || text.includes("שניים") || text.includes("זוג")
-        ? 2
-        : text.includes("1") || text.includes("אחד") || text.includes("בודד")
-          ? 1
-          : "unknown",
+    tireCount:
+      structuredProfile.tireCount === 1 ||
+      structuredProfile.tireCount === 2 ||
+      structuredProfile.tireCount === 4
+        ? structuredProfile.tireCount
+        : "unknown",
   };
 }
 
-function profileIsReady(profile: RecommendationProfile) {
-  return (
-    profile.tireCount !== "unknown" &&
-    profile.replacementReason !== "unknown" &&
-    profile.monthlyMileage !== "unknown" &&
-    profile.priority !== "unknown" &&
-    profile.drivingStyle !== "unknown"
-  );
+function profileIsReady(profile: ConversationProfile) {
+  return profile.missingFields.length === 0;
 }
 
 function formatRecommendationContext(recommendations: TireRecommendationSet) {
@@ -205,7 +130,8 @@ function formatTireKnowledgeSummary() {
 function toOpenAIInput(
   messages: ClientMessage[],
   vehicle: Vehicle,
-  profile: RecommendationProfile,
+  structuredProfile: ConversationProfile,
+  recommendationProfile: RecommendationProfile,
   recommendations: TireRecommendationSet,
 ) {
   const vehicleContext = [
@@ -215,22 +141,22 @@ function toOpenAIInput(
     `Plate number: ${vehicle.plateNumber}`,
   ].join("\n");
   const recommendationContext = formatRecommendationContext(recommendations);
-  const ready = profileIsReady(profile);
+  const ready = profileIsReady(structuredProfile);
   const knowledgeSummary = formatTireKnowledgeSummary();
-  const knownProfile = formatKnownProfile(profile);
 
   return [
     {
       role: "user" as const,
       content: [
         `Context for this conversation:\n${vehicleContext}`,
-        `Known customer profile extracted from the conversation:\n${knownProfile}`,
+        `structuredProfile extracted deterministically from the conversation:\n${JSON.stringify(structuredProfile, null, 2)}`,
+        `Recommendation engine profile:\n${JSON.stringify(recommendationProfile, null, 2)}`,
         `Current tire knowledge base summary:\n${knowledgeSummary}`,
         `Structured recommendations from local engine:\n${recommendationContext}`,
         `Profile ready for final recommendations: ${ready ? "yes" : "no"}`,
         ready
           ? "You may recommend now. Use the structured recommendations above and explain why each tier fits."
-          : "Do not force a questionnaire. Ask only one missing important question, unless the user asked a general tire question.",
+          : "Do not force a questionnaire. Ask only one question from structuredProfile.missingFields, unless the user asked a general tire question.",
       ].join("\n\n"),
     },
     ...messages.map((message) => ({
@@ -258,8 +184,9 @@ export async function POST(request: Request) {
       return Response.json({ error: "בקשה לא תקינה." }, { status: 400 });
     }
 
-    const profile = inferProfile(body.messages, body.vehicle);
-    const recommendations = recommendTires(profile);
+    const structuredProfile = extractConversationProfile(body.messages);
+    const recommendationProfile = toRecommendationProfile(structuredProfile, body.vehicle);
+    const recommendations = recommendTires(recommendationProfile);
     const client = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY,
     });
@@ -267,13 +194,20 @@ export async function POST(request: Request) {
     const response = await client.responses.create({
       model: "gpt-5.5",
       instructions: systemPrompt,
-      input: toOpenAIInput(body.messages, body.vehicle, profile, recommendations),
+      input: toOpenAIInput(
+        body.messages,
+        body.vehicle,
+        structuredProfile,
+        recommendationProfile,
+        recommendations,
+      ),
     });
 
     return Response.json({
       message: response.output_text || "לא הצלחתי לנסח תשובה כרגע. אפשר לנסות שוב?",
-      profile,
-      recommendations: profileIsReady(profile) ? recommendations : null,
+      structuredProfile,
+      profile: recommendationProfile,
+      recommendations: profileIsReady(structuredProfile) ? recommendations : null,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Tyrei לא הצליח לענות כרגע.";
