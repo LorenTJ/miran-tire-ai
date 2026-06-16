@@ -1,8 +1,6 @@
 import { NextResponse } from 'next/server';
-import { createVehicleDataLayer, normalizePlateNumber } from '@/lib/vehicle-data';
-import { legacyVehicleDataProvider } from '@/lib/vehicles';
-
-const vehicleDataLayer = createVehicleDataLayer([legacyVehicleDataProvider]);
+import { normalizePlateNumber } from '@/lib/vehicle-data';
+import { vehicleDataLayer } from '@/lib/vehicle-source-registry';
 
 export async function GET(
   _request: Request,
