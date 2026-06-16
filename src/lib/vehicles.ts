@@ -1,3 +1,5 @@
+import { createLegacyVehicleProvider } from "@/lib/vehicle-data";
+
 export type Vehicle = {
   plateNumber: string;
   model: string;
@@ -31,3 +33,5 @@ export const vehicles: Vehicle[] = [
     tireSize: '275/65R18',
   },
 ];
+
+export const legacyVehicleDataProvider = createLegacyVehicleProvider(vehicles);
