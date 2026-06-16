@@ -15,6 +15,12 @@ export type VehicleDataSourceType =
   | "manual-verified"
   | "legacy";
 
+export type VehicleDataConfidenceStatus =
+  | "verified"
+  | "unverified"
+  | "legacy"
+  | "unknown";
+
 export type RecommendedPressure = {
   frontPsi: number | null;
   rearPsi: number | null;
@@ -41,6 +47,7 @@ export type VehicleDataRecord = {
   source: {
     type: VehicleDataSourceType;
     name: string;
+    confidenceStatus: VehicleDataConfidenceStatus;
     verifiedAt: string | null;
   };
 };
@@ -94,6 +101,7 @@ export function legacyVehicleToVehicleDataRecord(vehicle: LegacyVehicleRecord): 
     source: {
       type: "legacy",
       name: "src/lib/vehicles.ts",
+      confidenceStatus: "legacy",
       verifiedAt: null,
     },
   };
