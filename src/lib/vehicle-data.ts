@@ -21,6 +21,31 @@ export type VehicleDataConfidenceStatus =
   | "legacy"
   | "unknown";
 
+export type VehicleFitmentNoticeCode =
+  | "multiple-approved-tire-sizes"
+  | "missing-front-tire-size"
+  | "missing-load-index"
+  | "missing-speed-rating"
+  | "front-rear-sizes-differ"
+  | "legacy-unverified";
+
+export type VehicleFitmentNotice = {
+  code: VehicleFitmentNoticeCode;
+  severity: "note" | "warning";
+  message: string;
+};
+
+export type VehicleFitmentVerification = {
+  hasVerifiedSource: boolean;
+  status: VehicleDataConfidenceStatus;
+  hasFrontTireSize: boolean;
+  hasRearTireSize: boolean;
+  hasLoadIndex: boolean;
+  hasSpeedRating: boolean;
+  hasStaggeredFitment: boolean;
+  notices: VehicleFitmentNotice[];
+};
+
 export type RecommendedPressure = {
   frontPsi: number | null;
   rearPsi: number | null;
@@ -44,6 +69,7 @@ export type VehicleDataRecord = {
   oeHomologation: string | null;
   wheelSizes: string[] | null;
   recommendedPressure: RecommendedPressure | null;
+  fitmentNotices: VehicleFitmentNotice[];
   source: {
     type: VehicleDataSourceType;
     name: string;
@@ -81,6 +107,60 @@ export function normalizePlateNumber(value: string) {
   return value.replace(/[-\s]/g, "").toLowerCase();
 }
 
+export function getVehicleFitmentVerification(record: VehicleDataRecord): VehicleFitmentVerification {
+  const notices = [...record.fitmentNotices];
+  const hasFrontTireSize = Boolean(record.frontTireSize);
+  const hasRearTireSize = Boolean(record.rearTireSize);
+  const hasLoadIndex = Boolean(record.loadIndex);
+  const hasSpeedRating = Boolean(record.speedRating);
+  const hasStaggeredFitment =
+    Boolean(record.frontTireSize && record.rearTireSize) &&
+    record.frontTireSize !== record.rearTireSize;
+
+  if (!hasFrontTireSize) {
+    notices.push({
+      code: "missing-front-tire-size",
+      severity: "warning",
+      message: "Front tire size is required before a fitment record can be treated as verified.",
+    });
+  }
+
+  if (!hasLoadIndex) {
+    notices.push({
+      code: "missing-load-index",
+      severity: "note",
+      message: "Load index is not present in this vehicle fitment record.",
+    });
+  }
+
+  if (!hasSpeedRating) {
+    notices.push({
+      code: "missing-speed-rating",
+      severity: "note",
+      message: "Speed rating is not present in this vehicle fitment record.",
+    });
+  }
+
+  if (hasStaggeredFitment) {
+    notices.push({
+      code: "front-rear-sizes-differ",
+      severity: "note",
+      message: "Front and rear tire sizes differ in this vehicle fitment record.",
+    });
+  }
+
+  return {
+    hasVerifiedSource: record.source.confidenceStatus === "verified",
+    status: record.source.confidenceStatus,
+    hasFrontTireSize,
+    hasRearTireSize,
+    hasLoadIndex,
+    hasSpeedRating,
+    hasStaggeredFitment,
+    notices,
+  };
+}
+
 export function legacyVehicleToVehicleDataRecord(vehicle: LegacyVehicleRecord): VehicleDataRecord {
   return {
     plateNumber: vehicle.plateNumber,
@@ -98,6 +178,13 @@ export function legacyVehicleToVehicleDataRecord(vehicle: LegacyVehicleRecord): 
     oeHomologation: null,
     wheelSizes: null,
     recommendedPressure: null,
+    fitmentNotices: [
+      {
+        code: "legacy-unverified",
+        severity: "warning",
+        message: "Legacy vehicle records are not verified fitment records.",
+      },
+    ],
     source: {
       type: "legacy",
       name: "src/lib/vehicles.ts",
